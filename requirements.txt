@@ -1,3 +1,4 @@
 aiogram==3.13.1
-osmnx==1.9.3
+osmnx==1.9.1
 networkx==3.2.1
+pandas==2.2.2
