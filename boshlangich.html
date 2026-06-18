@@ -7,73 +7,67 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
         #map { height: 85vh; width: 100%; }
         .btn-container { height: 15vh; display: flex; align-items: center; justify-content: center; background: #f8f9fa; }
         #confirm-btn { background-color: #007bff; color: white; border: none; padding: 15px; font-size: 18px; font-weight: bold; border-radius: 10px; width: 90%; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-        #confirm-btn:active { background-color: #0056b3; }
     </style>
 </head>
 <body>
-
     <div id="map"></div>
-    <div class="btn-container">
-        <button id="confirm-btn">📍 Turgan joyni tasdiqlash</button>
-    </div>
+    <div class="btn-container"><button id="confirm-btn">📍 Turgan joyni tasdiqlash</button></div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.expand();
+        const tg = window.Telegram.WebApp; tg.expand();
+        let defaultLat = 40.9973, defaultLon = 71.2239;
 
-        // Boshlang'ich default ko'rinish Chust markazi
-        let defaultLat = 40.9973;
-        let defaultLon = 71.2239;
+        // 🗺️ 1-Qatlam: Standart Ko'cha xaritasi
+        const kochaQatlami = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap'
+        });
 
-        const map = L.map('map').setView([defaultLat, defaultLon], 15);
+        // 🛰️ 2-Qatlam: Sun'iy yo'ldosh xaritasi (Esri Satellite)
+        const yoldoshQatlami = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles © Esri'
+        });
 
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors'
-        }).addTo(map);
+        const map = L.map('map', {
+            center: [defaultLat, defaultLon],
+            zoom: 15,
+            layers: [kochaQatlami]
+        });
+
+        const asosiyQatlamlar = {
+            "🗺️ Oddiy xarita": kochaQatlami,
+            "🛰️ Sun'iy yo'ldosh": yoldoshQatlami
+        };
+        L.control.layers(asosiyQatlamlar).addTo(map);
 
         let marker = L.marker([defaultLat, defaultLon], {draggable: true}).addTo(map);
         let selectedCoords = { lat: defaultLat, lon: defaultLon };
 
-        // 🛰️ Brauzer/Telefon GPS orqali avtomatik aniqlash (Auto-locate)
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(function(position) {
                 let userLat = position.coords.latitude;
                 let userLon = position.coords.longitude;
-                
-                // Xaritani mijozning GPS koordinatasiga ko'chiramiz
-                map.setView([userLat, userLon], 16);
+                map.setView([userLat, userLon], 17); // Yo'ldoshda uy yaxshi ko'rinishi uchun yaqinroq qilamiz (zoom 17)
                 marker.setLatLng([userLat, userLon]);
-                
-                selectedCoords.lat = userLat;
-                selectedCoords.lon = userLon;
+                selectedCoords.lat = userLat; selectedCoords.lon = userLon;
             }, function() {
-                console.log("GPS ruxsat berilmadi, default Chust markazi qoladi.");
-            }, { enableHighAccuracy: true }); // Maksimal aniqlikda olish
+                console.log("GPS ruxsat berilmadi.");
+            }, { enableHighAccuracy: true });
         }
 
         marker.on('dragend', function (e) {
-            const position = marker.getLatLng();
-            selectedCoords.lat = position.lat;
-            selectedCoords.lon = position.lng;
+            const pos = marker.getLatLng(); selectedCoords.lat = pos.lat; selectedCoords.lon = pos.lng;
         });
-
         map.on('click', function (e) {
-            marker.setLatLng(e.latlng);
-            selectedCoords.lat = e.latlng.lat;
-            selectedCoords.lon = e.latlng.lng;
+            marker.setLatLng(e.latlng); selectedCoords.lat = e.latlng.lat; selectedCoords.lon = e.latlng.lng;
         });
 
         document.getElementById('confirm-btn').addEventListener('click', () => {
-            tg.sendData(JSON.stringify({
-                latitude: selectedCoords.lat,
-                longitude: selectedCoords.lon
-            }));
+            tg.sendData(JSON.stringify({ latitude: selectedCoords.lat, longitude: selectedCoords.lon }));
             tg.close();
         });
     </script>
