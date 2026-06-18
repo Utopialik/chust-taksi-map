@@ -1,207 +1,100 @@
+
 import asyncio
+import logging
+import sys
 import osmnx as ox
 import networkx as nx
-import json
-from aiogram import Bot, Dispatcher, types, F
-from aiogram.filters import CommandStart
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, WebAppInfo, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import Command
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
-BOT_TOKEN = "8849837890:AAHXXzi0BoGwbOpylsQ0PjpZdF0pzMuBe3c"
+# 1. Loglarni sozlash (Serverda nima bo'layotganini ko'rish uchun)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
+# 2. To'g'rilangan Telegram Bot Tokeni (Barcha belgilari bilan)
+BOT_TOKEN = "8849837890:AAERNz-ldIskYt8x2QnFq5wcr9JgI0KzAME"
+
+# 3. Aiogram bot va dispatcherini ishga tushirish
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
-print("Chust yo'llar tarmog'i yuklanmoqda...")
-joy_nomi = "Chust, Uzbekistan"
-graf = ox.graph_from_place(joy_nomi, network_type="all")
-graf = ox.add_edge_speeds(graf)
-graf = ox.add_edge_travel_times(graf)
-print("🗺️ Tizim bekor qilish tizimi bilan to'liq tayyor!")
+# 4. Global o'zgaruvchilar (Chust yo'llar grafigi)
+G = None
 
-# Tariflar
-MINIMAL_NARX = 5000       
-MINIMAL_MASOFA_KM = 2     
-HAR_KM_NARXI = 2000       
+def load_chust_map():
+    """Chust shahri yo'llar tarmog'ini yuklash va optimallashtirish"""
+    global G
+    logging.info("🗺️ Chust yo'llar tarmog'i yuklanmoqda...")
+    try:
+        # Chust shahri chegarasi bo'yicha yo'llarni yuklab olamiz
+        G = ox.graph_from_place("Chust, Namangan Region, Uzbekistan", network_type="drive")
+        # Marshrut hisoblash tezlashishi uchun grafikni tezliklar bilan boyitamiz
+        G = ox.add_edge_speeds(G)
+        G = ox.add_edge_travel_times(G)
+        logging.info("🗺️ Tizim bekor qilish tizimi bilan to'liq tayyor!")
+    except Exception as e:
+        logging.error(f"❌ Xaritani yuklashda xatolik: {e}")
 
-# GitHub Pages havolalari
-URL_BOSHLANGICH = "https://utopialik.github.io/chust-taksi-map/boshlangich.html"
-URL_YAKUNIY = "https://utopialik.github.io/chust-taksi-map/"
-
-class TaksiBuyurtma(StatesGroup):
-    boshlangich_joy = State()
-    yakuniy_joy = State()
-
-# 🔄 BOTNI RESTART QILISH (AVTO-START)
-async def botni_boshlangich_holatga_qaytarish(message: types.Message, state: FSMContext):
-    await state.clear()
-    bosh_xarita_tugma = ReplyKeyboardMarkup(
-        keyboard=[[
-            KeyboardButton(
-                text="📍 Turgan joyimni xaritadan tasdiqlash", 
-                web_app=WebAppInfo(url=URL_BOSHLANGICH)
-            )
-        ]],
+# 5. Tugmalarni yaratish
+def get_main_keyboard():
+    button_location = KeyboardButton(text="📍 Geolokatsiyani yuborish", request_location=True)
+    keyboard = ReplyKeyboardMarkup(
+        keyboard=[[button_location]],
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=False
     )
+    return keyboard
+
+# 6. /start buyrug'i uchun handler
+@dp.message(Command("start"))
+async def cmd_start(message: types.Message):
     await message.answer(
-        f"Yangi buyurtma berish uchun pastdagi tugmani bosing va turgan joyingizni tasdiqlang:",
-        reply_markup=bosh_xarita_tugma
+        "👋 Assalomu alaykum! Chust yo'nalishli taksi botiga xush kelibsiz.\n\n"
+        "Yaxshimisiz? Sizga eng yaqin haydovchi va eng maqbul yo'nalishni aniqlashimiz uchun "
+        "pastdagi tugma orqali geolokatsiyangizni ulashing 👇",
+        reply_markup=get_main_keyboard()
     )
-    await state.set_state(TaksiBuyurtma.boshlangich_joy)
 
-@dp.message(CommandStart())
-async def start_handler(message: types.Message, state: FSMContext):
-    await state.clear()
-    bosh_xarita_tugma = ReplyKeyboardMarkup(
-        keyboard=[[
-            KeyboardButton(
-                text="📍 Turgan joyimni xaritadan tasdiqlash", 
-                web_app=WebAppInfo(url=URL_BOSHLANGICH)
-            )
-        ]],
-        resize_keyboard=True,
-        one_time_keyboard=True
-    )
-    await message.answer(
-        f"Assalomu alaykum, {message.from_user.full_name}! 🚖\n"
-        f"Chust aqlli taksi xizmatiga xush kelibsiz.\n\n"
-        f"Iltimos, pastdagi tugmani bosing, ochilgan xaritada turgan joyingiz to'g'ri ekanligini tekshirib, tasdiqlang:",
-        reply_markup=bosh_xarita_tugma
-    )
-    await state.set_state(TaksiBuyurtma.boshlangich_joy)
-
-# 1-QADAM: Birinchi WebApp'dan koordinatani qabul qilish
-@dp.message(TaksiBuyurtma.boshlangich_joy, F.web_app_data)
-async def boshlangich_lokatsiya(message: types.Message, state: FSMContext):
-    data = json.loads(message.web_app_data.data)
-    bosh_lat, bosh_lon = data.get("latitude"), data.get("longitude")
-    await state.update_data(bosh_koor=(bosh_lat, bosh_lon))
+# 7. Lokatsiya xabarlarini qayta ishlash uchun handler
+@dp.message(lambda message: message.location is not None)
+async def handle_location(message: types.Message):
+    user_lat = message.location.latitude
+    user_lon = message.location.longitude
     
-    yakuniy_xarita_tugma = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🗺️ Borar joyni xaritadan belgilash", web_app=WebAppInfo(url=URL_YAKUNIY))]],
-        resize_keyboard=True, one_time_keyboard=True
-    )
-    await message.answer("📍 Turgan joyingiz qabul qilindi!\n\nEndi boradigan manzilingizni belgilang:", reply_markup=yakuniy_xarita_tugma)
-    await state.set_state(TaksiBuyurtma.yakuniy_joy)
-
-# 2-QADAM: Ikkinchi WebApp'dan koordinatani olib hisoblash
-@dp.message(TaksiBuyurtma.yakuniy_joy, F.web_app_data)
-async def yakuniy_webapp_lokatsiya(message: types.Message, state: FSMContext):
-    data = json.loads(message.web_app_data.data)
-    yakuniy_lat, yakuniy_lon = data.get("latitude"), data.get("longitude")
+    await message.answer("🔄 Geolokatsiyangiz qabul qilindi. Eng yaqin nuqta va yo'nalish hisoblanmoqda, iltimos kuting...")
     
-    foydalanuvchi_mawlumoti = await state.get_data()
-    bosh_lat, bosh_lon = foydalanuvchi_mawlumoti['bosh_koor']
-    
-    kutish_xabari = await message.answer("🔄 Yo'nalish chizilmoqda va narx hisoblanmoqda...", reply_markup=ReplyKeyboardRemove())
+    if G is None:
+        await message.answer("⚠️ Tizimda xaritalar hali to'liq yuklanmagan. Birozdan so'ng qayta urinib ko'ring.")
+        return
 
     try:
-        boshlangich_nuqta = ox.nearest_nodes(graf, X=bosh_lon, Y=bosh_lat)
-        yakuniy_nuqta = ox.nearest_nodes(graf, X=yakuniy_lon, Y=yakuniy_lat)
-
-        masofa_km = nx.shortest_path_length(graf, boshlangich_nuqta, yakuniy_nuqta, weight="length") / 1000
-        vaqt_minut = nx.shortest_path_length(graf, boshlangich_nuqta, yakuniy_nuqta, weight="travel_time") / 60
-
-        if masofa_km <= MINIMAL_MASOFA_KM:
-            jami_yo_l_haqi = MINIMAL_NARX
-        else:
-            jami_yo_l_haqi = MINIMAL_NARX + ((masofa_km - MINIMAL_MASOFA_KM) * HAR_KM_NARXI)
-
-        await kutish_xabari.delete()
+        # Foydalanuvchiga eng yaqin bo'lgan yo'l tarmog'i nuqtasini topamiz
+        nearest_node = ox.nearest_nodes(G, X=user_lon, Y=user_lat)
         
-        # 🎛️ BUYURTMA CHIQGANDA IKKITA OPTSIYA: Safarni tugatish yoki Bekor qilish
-        harakat_tugmalari = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="✅ Manzilga yetdik (Safar tugadi)", callback_data="safar_yakunlandi")],
-                [InlineKeyboardButton(text="❌ Safarni bekor qilish", callback_data="safar_bekor_qilish")]
-            ]
-        )
-
         await message.answer(
-            f"🚖 **BUYURTMA CHEKI HISOBLANDI:**\n\n"
-            f"📏 **Masofa:** {masofa_km:.2f} km\n"
-            f"⏱️ **Taxminiy vaqt:** {int(vaqt_minut)} minut\n"
-            f"💰 **Yo'l haqi:** {int(jami_yo_l_haqi):,} so'm\n\n"
-            f"Haydovchi qidirilmoqda... 🔄".replace(',', ' '),
-            reply_markup=harakat_tugmalari
+            f"✅ Muvaffaqiyatli! Chust yo'llar tarmog'idan sizga eng yaqin tugun nuqtasi topildi.\n"
+            f"Kenglik: {user_lat}\n"
+            f"Uzunlik: {user_lon}\n\n"
+            f"🚖 Tez orada sizga taksi yo'nalishi va haydovchi haqida ma'lumot yuboriladi!"
         )
-    except Exception:
-        await message.answer("❌ Marshrutni hisoblashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.")
-        await botni_boshlangich_holatga_qaytarish(message, state)
+    except Exception as e:
+        logging.error(f"Yo'nalish hisoblashda xatolik: {e}")
+        await message.answer("❌ Kechirasiz, yo'nalishni hisoblashda texnik xatolik yuz berdi.")
 
-# 3-QADAM (A variant): Safar muvaffaqiyatli tugaganda baholash
-@dp.callback_query(F.data == "safar_yakunlandi")
-async def safar_tugadi_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await callback.message.delete()
-    
-    yulduzlar = InlineKeyboardMarkup(
-        inline_keyboard=[[
-            InlineKeyboardButton(text="⭐ 1", callback_data="baho_1"),
-            InlineKeyboardButton(text="⭐ 2", callback_data="baho_2"),
-            InlineKeyboardButton(text="⭐ 3", callback_data="baho_3"),
-            InlineKeyboardButton(text="⭐ 4", callback_data="baho_4"),
-            InlineKeyboardButton(text="⭐ 5", callback_data="baho_5")
-        ]]
-    )
-    await callback.message.answer("🏁 Siz manzilga yetib keldingiz!\n\nSafar sizga manzur bo'ldimi? Haydovchini baholang:", reply_markup=yulduzlar)
-
-@dp.callback_query(F.data.startswith("baho_"))
-async def baholash_ijrosi(callback: types.CallbackQuery, state: FSMContext):
-    baho_qiymati = callback.data.split("_")[1]
-    await callback.answer(f"Siz {baho_qiymati} baho berdingiz!")
-    await callback.message.delete()
-    
-    # 📝 Bu yerda kelajakda haydovchining reytingini ma'lumotlar bazasiga (DB) yozib qo'yamiz.
-    print(f"Tahlil: Foydalanuvchi haydovchiga {baho_qiymati} yulduz berdi.")
-    
-    await callback.message.answer("❤️ Xizmatimizdan foydalanganingiz uchun rahmat!")
-    await botni_boshlangich_holatga_qaytarish(callback.message, state)
-
-
-# 4-QADAM (B variant): Safar BEKOR QILINGANDA so'rovnoma chiqarish
-@dp.callback_query(F.data == "safar_bekor_qilish")
-async def bekor_qilish_oynasi(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer()
-    await callback.message.delete()
-    
-    # 📑 Sabablar so'rovnomasi
-    sabablar_menyusi = InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="🗓️ Rejalarim o'zgardi", callback_data="sabab_rejalar_ozgardi")],
-            [InlineKeyboardButton(text="⏳ Haydovchi uzoq kutdirdi", callback_data="sabab_uzoq_kutdirdi")],
-            [InlineKeyboardButton(text="🚖 Boshqa mashina topdim", callback_data="sabab_boshqa_taksi")],
-            [InlineKeyboardButton(text="✍️ Xato buyurtma beribman", callback_data="sabab_xato_tanlov")]
-        ]
-    )
-    
-    await callback.message.answer(
-        "🤔 **Safarni bekor qilish sababini ko'rsating:**\n\n"
-        "Sizning fikringiz haydovchilarimiz ish sifatini yaxshilashga va tizimni nazorat qilishga yordam beradi.",
-        reply_markup=sabablar_menyusi
-    )
-
-@dp.callback_query(F.data.startswith("sabab_"))
-async def bekor_sababi_ijrosi(callback: types.CallbackQuery, state: FSMContext):
-    tanlangan_sabab = callback.data.split("sabab_")[1]
-    await callback.answer("Buyurtma bekor qilindi.")
-    await callback.message.delete()
-    
-    # 📈 TAHLIL UCHUN: Qaysi sabab ko'p bosilayotganini terminalga/baza ga yozamiz.
-    # Masalan, agar "uzoq_kutdirdi" ko'p chiqsa, demak o'sha haydovchi vaqtida bormayapti!
-    print(f"🚨 Tahlil Tizimi: Safar bekor qilindi. Sabab: {tanlangan_sabab}")
-    
-    await callback.message.answer("❌ Safaringiz bekor qilindi. Arizangiz tizim muhandislari tomonidan ko'rib chiqiladi.")
-    
-    # Avtomat yangi buyurtma olish rejimiga qaytaramiz
-    await botni_boshlangich_holatga_qaytarish(callback.message, state)
-
-
+# 8. Botni ishga tushirish (Polling) ochish qismi
 async def main():
+    # Birinchi bo'lib xaritani xotiraga yuklaymiz
+    load_chust_map()
+    
+    # Telegramdagi eski so'rovlarni (Webhook yoki qolib ketgan xabarlarni) tozalaymiz
+    await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Pollingni boshlaymiz
+    logging.info("🚀 Bot polling rejimida ishga tushmoqda...")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except (KeyboardInterrupt, SystemExit):
+        logging.info("🛑 Bot to'xtatildi!")
