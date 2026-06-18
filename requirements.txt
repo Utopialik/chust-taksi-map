@@ -1,0 +1,3 @@
+aiogram==3.13.1
+osmnx==1.9.3
+networkx==3.2.1
