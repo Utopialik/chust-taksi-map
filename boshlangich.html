@@ -7,6 +7,10 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.css" />
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+
     <style>
         body, html { margin: 0; padding: 0; height: 100%; width: 100%; font-family: sans-serif; }
         #map { height: 85vh; width: 100%; }
@@ -37,6 +41,13 @@
             zoom: 15,
             layers: [kochaQatlami]
         });
+
+        // 🔍 2-QADAM: Xaritaga Chust uchun moslashtirilgan qidiruv oynasini qo'shish
+        L.Control.geocoder({
+            defaultMarkGeocode: true,
+            placeholder: "Qishloq, ko'cha yoki joy nomi...",
+            errorMessage: "Afsuski, bunday joy topilmadi."
+        }).addTo(map);
 
         const asosiyQatlamlar = {
             "🗺️ Oddiy xarita": kochaQatlami,
